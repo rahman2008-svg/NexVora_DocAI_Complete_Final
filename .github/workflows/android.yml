@@ -3,9 +3,7 @@ name: NexVora DocAI - Android APK Build
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
@@ -36,7 +34,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          accept-android-sdk-licenses: 'yes'
 
       - name: Prepare Gradle
         run: chmod +x ./gradlew
@@ -48,31 +49,24 @@ jobs:
           test -f gradlew
 
       - name: Run Unit Tests
-        id: tests
-        continue-on-error: true
         run: ./gradlew test --stacktrace
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Prepare APK Download
+      - name: Prepare APK
         run: |
           mkdir -p release-apk
           APK=$(find app/build/outputs/apk/debug \
             -maxdepth 1 -name '*.apk' -type f | head -n 1)
-          if [ -z "$APK" ]; then
-            echo "APK not found!"
-            exit 1
-          fi
+          test -n "$APK"
           cp "$APK" release-apk/NexVora-DocAI-debug.apk
-          ls -lh release-apk/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: NexVora-DocAI-APK
           path: release-apk/NexVora-DocAI-debug.apk
-          if-no-files-found: error
           retention-days: 30
 
       - name: Upload Test Reports
@@ -93,12 +87,10 @@ jobs:
            github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0-build-${{ github.run_number }}
-          name: NexVora DocAI v1.0.0 - Build ${{ github.run_number }}
+          tag_name: v1.0.0-build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: NexVora DocAI Build ${{ github.run_number }}
           body: |
-            # NexVora DocAI
-
-            Automated Android Debug APK Build.
+            NexVora DocAI - Android APK
 
             Developer: Prince AR Abdur Rahman
             Publisher: NexVora Lab's Ofc
@@ -106,11 +98,9 @@ jobs:
             Build: ${{ github.run_number }}
             Commit: ${{ github.sha }}
 
-            Download the APK from Assets below.
-
+            Download APK from Release Assets.
           files: release-apk/NexVora-DocAI-debug.apk
           draft: false
           prerelease: false
           make_latest: true
-          fail_on_unmatched_files: true
           
