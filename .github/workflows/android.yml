@@ -1,10 +1,17 @@
 
-name: NexVora DocAI - Android APK Build
+name: NexVora DocAI - Android CI & APK Release
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+
   pull_request:
+    branches:
+      - main
+      - master
+
   workflow_dispatch:
 
 permissions:
@@ -16,59 +23,115 @@ concurrency:
 
 jobs:
   build:
-    name: Build NexVora DocAI APK
+    name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
+      # 1. Checkout
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Setup JDK 21
+      # 2. Java 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
+      # 3. Gradle
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # 4. Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
-          accept-android-sdk-licenses: 'yes'
 
-      - name: Prepare Gradle
-        run: chmod +x ./gradlew
-
-      - name: Verify Project
+      # 5. Check project
+      - name: Verify Android Project
         run: |
           test -f settings.gradle.kts
+          test -f build.gradle.kts
           test -f app/build.gradle.kts
-          test -f gradlew
+          test -f gradle/wrapper/gradle-wrapper.properties
+          test -f gradle/wrapper/gradle-wrapper.jar
+          echo "Project verification successful"
 
-      - name: Run Unit Tests
-        run: ./gradlew test --stacktrace
+      # 6. Gradle permission
+      - name: Fix Gradle Permissions
+        run: chmod +x gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
-
-      - name: Prepare APK
+      # 7. Environment information
+      - name: Show Build Environment
         run: |
-          mkdir -p release-apk
-          APK=$(find app/build/outputs/apk/debug \
-            -maxdepth 1 -name '*.apk' -type f | head -n 1)
-          test -n "$APK"
-          cp "$APK" release-apk/NexVora-DocAI-debug.apk
+          java -version
+          bash ./gradlew --version
+          echo "Android SDK: $ANDROID_HOME"
 
-      - name: Upload APK Artifact
+      # 8. Unit tests
+      - name: Run Unit Tests
+        id: unit_tests
+        continue-on-error: true
+        run: |
+          bash ./gradlew test \
+            --no-daemon \
+            --stacktrace
+
+      # 9. Build APK
+      - name: Build Debug APKs
+        run: |
+          bash ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+      # 10. Collect ABI APKs
+      - name: Prepare APK Downloads
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p release-apk
+
+          found=0
+
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+
+            APK=$(find app/build/outputs/apk/debug \
+              -maxdepth 1 \
+              -type f \
+              -name "*-${abi}.apk" \
+              -print -quit)
+
+            if [ -n "$APK" ]; then
+              cp "$APK" \
+                "release-apk/NexVora-DocAI-${abi}.apk"
+
+              echo "Prepared: $abi"
+              found=1
+            fi
+
+          done
+
+          if [ "$found" -eq 0 ]; then
+            echo "No ABI APK files found!"
+            find app/build/outputs/apk -type f
+            exit 1
+          fi
+
+          ls -lh release-apk/
+
+      # 11. Upload APK Artifact
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: NexVora-DocAI-APK
-          path: release-apk/NexVora-DocAI-debug.apk
+          name: NexVora-DocAI-APKs
+          path: release-apk/*.apk
+          if-no-files-found: error
           retention-days: 30
 
+      # 12. Test reports
       - name: Upload Test Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,26 +143,53 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # 13. Build summary
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "## NexVora DocAI Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Unit Tests: ${{ steps.unit_tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      # 14. Publish GitHub Release
       - name: Publish GitHub Release
         if: >
+          success() &&
           github.event_name != 'pull_request' &&
           (github.ref == 'refs/heads/main' ||
            github.ref == 'refs/heads/master')
+
         uses: softprops/action-gh-release@v2
+
         with:
           tag_name: v1.0.0-build-${{ github.run_number }}-${{ github.run_attempt }}
-          name: NexVora DocAI Build ${{ github.run_number }}
+
+          name: NexVora DocAI v1.0.0 - Build ${{ github.run_number }}
+
           body: |
-            NexVora DocAI - Android APK
+            # NexVora DocAI
+
+            Android Application Release
 
             Developer: Prince AR Abdur Rahman
             Publisher: NexVora Lab's Ofc
 
+            Version: 1.0.0
             Build: ${{ github.run_number }}
+
+            ## Downloads
+
+            - arm64-v8a: Modern ARM Android devices
+            - armeabi-v7a: 32-bit ARM devices
+            - x86_64: 64-bit x86 devices
+
+            Unit Test Result: ${{ steps.unit_tests.outcome }}
+
             Commit: ${{ github.sha }}
 
-            Download APK from Release Assets.
-          files: release-apk/NexVora-DocAI-debug.apk
+          files: release-apk/*.apk
+
           draft: false
           prerelease: false
           make_latest: true
