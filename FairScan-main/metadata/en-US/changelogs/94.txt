@@ -1,2 +1,0 @@
-New filter: black & white.
-New app translations: Persian and Tamil.
