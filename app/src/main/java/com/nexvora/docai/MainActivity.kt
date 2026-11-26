@@ -86,6 +86,7 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var appContainer: AppContainer
     private lateinit var cameraViewModel: CameraViewModel
     private lateinit var viewModel: MainViewModel
 
@@ -99,7 +100,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         initLibraries()
 
-        val appContainer = (application as FairScanApp).appContainer
+        appContainer = (application as FairScanApp).appContainer
         val launchMode = resolveLaunchMode(intent)
 
         val sessionViewModel: SessionViewModel by viewModels {

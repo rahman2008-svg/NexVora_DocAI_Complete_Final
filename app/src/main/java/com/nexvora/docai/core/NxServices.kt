@@ -65,10 +65,15 @@ class NxServices(
     val models = ModelManager(File(files, "models"), scope)
     /** Native llama.cpp bridge: reports "engine not installed" unless libnexvora_llama.so is packaged (see docs). */
     val llm: TextGenerationEngine = LlamaCppEngine()
-    val llmRuntime = LlmRuntime(llm, models, scope) {
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
-    }
+    val llmRuntime = LlmRuntime(
+        engine = llm,
+        models = models,
+        scope = scope,
+        availableMemory = {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.availMem
+        }
+    )
     val assistant = AssistantController(vault, extractor, File(files, "assistant"), scope, llmRuntime)
     val backup = BackupManager(vault, study)
     val translationEngine: TranslationEngine = LlmTranslationEngine(llm)
